@@ -4,19 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"sync"
 	"time"
+	"unsafe"
 )
 
-var bufferPool *sync.Pool
+var bufferPool sync.Pool
 
-func init() {
-	bufferPool = &sync.Pool{
-		New: func() interface{} {
-			return new(bytes.Buffer)
-		},
-	}
-}
 
 // Defines the key when adding errors using WithError.
 var ErrorKey = "error"
@@ -88,7 +83,6 @@ func (entry *Entry) WithFields(fields Fields) *Entry {
 // This function is not declared with a pointer value because otherwise
 // race conditions will occur when using multiple goroutines
 func (entry Entry) log(level Level, msg string) {
-	var buffer *bytes.Buffer
 	entry.Time = time.Now()
 	entry.Level = level
 	entry.Message = msg
@@ -98,9 +92,12 @@ func (entry Entry) log(level Level, msg string) {
 		fmt.Fprintf(os.Stderr, "Failed to fire hook: %v\n", err)
 		entry.Logger.mu.Unlock()
 	}
-	buffer = bufferPool.Get().(*bytes.Buffer)
-	buffer.Reset()
-	defer bufferPool.Put(buffer)
+	buffer, ok := bufferPool.Get().(*bytes.Buffer)
+	if ok {
+		buffer.Reset()
+	} else {
+		buffer = new(bytes.Buffer)
+	}
 	entry.Buffer = buffer
 	serialized, err := entry.Logger.Formatter.Format(&entry)
 	entry.Buffer = nil
@@ -116,6 +113,7 @@ func (entry Entry) log(level Level, msg string) {
 		}
 		entry.Logger.mu.Unlock()
 	}
+	bufferPool.Put(buffer)
 
 	// To avoid Entry#log() returning a value that only would make sense for
 	// panic() to use in Entry#Panic(), we avoid the allocation by checking
@@ -125,9 +123,21 @@ func (entry Entry) log(level Level, msg string) {
 	}
 }
 
+func (entry *Entry) doPrint(level Level, args...interface{}) {
+	buffer, ok := bufferPool.Get().(*bytes.Buffer)
+	if ok {
+		buffer.Reset()
+	} else {
+		buffer = new(bytes.Buffer)
+	}
+	fmt.Fprint(buffer, args...)
+	entry.log(level, unsafeString(buffer.Bytes()))
+	bufferPool.Put(buffer)
+}
+
 func (entry *Entry) Debug(args ...interface{}) {
 	if entry.Logger.Level >= DebugLevel {
-		entry.log(DebugLevel, fmt.Sprint(args...))
+		entry.doPrint(DebugLevel, args...)
 	}
 }
 
@@ -137,13 +147,13 @@ func (entry *Entry) Print(args ...interface{}) {
 
 func (entry *Entry) Info(args ...interface{}) {
 	if entry.Logger.Level >= InfoLevel {
-		entry.log(InfoLevel, fmt.Sprint(args...))
+		entry.doPrint(InfoLevel, args...)
 	}
 }
 
 func (entry *Entry) Warn(args ...interface{}) {
 	if entry.Logger.Level >= WarnLevel {
-		entry.log(WarnLevel, fmt.Sprint(args...))
+		entry.doPrint(WarnLevel, args...)
 	}
 }
 
@@ -153,13 +163,13 @@ func (entry *Entry) Warning(args ...interface{}) {
 
 func (entry *Entry) Error(args ...interface{}) {
 	if entry.Logger.Level >= ErrorLevel {
-		entry.log(ErrorLevel, fmt.Sprint(args...))
+		entry.doPrint(ErrorLevel, args...)
 	}
 }
 
 func (entry *Entry) Fatal(args ...interface{}) {
 	if entry.Logger.Level >= FatalLevel {
-		entry.log(FatalLevel, fmt.Sprint(args...))
+		entry.doPrint(FatalLevel, args...)
 	}
 	os.Exit(1)
 }
@@ -173,15 +183,27 @@ func (entry *Entry) Panic(args ...interface{}) {
 
 // Entry Printf family functions
 
+func (entry *Entry) doPrintf(level Level, format string, args ...interface{}) {
+	buffer, ok := bufferPool.Get().(*bytes.Buffer)
+	if ok {
+		buffer.Reset()
+	} else {
+		buffer = new(bytes.Buffer)
+	}
+	fmt.Fprintf(buffer, format, args...)
+	entry.log(level, unsafeString(buffer.Bytes()))
+	bufferPool.Put(buffer)
+}
+
 func (entry *Entry) Debugf(format string, args ...interface{}) {
 	if entry.Logger.Level >= DebugLevel {
-		entry.Debug(fmt.Sprintf(format, args...))
+		entry.doPrintf(DebugLevel, format, args...)
 	}
 }
 
 func (entry *Entry) Infof(format string, args ...interface{}) {
 	if entry.Logger.Level >= InfoLevel {
-		entry.Info(fmt.Sprintf(format, args...))
+		entry.doPrintf(InfoLevel, format, args...)
 	}
 }
 
@@ -191,7 +213,7 @@ func (entry *Entry) Printf(format string, args ...interface{}) {
 
 func (entry *Entry) Warnf(format string, args ...interface{}) {
 	if entry.Logger.Level >= WarnLevel {
-		entry.Warn(fmt.Sprintf(format, args...))
+		entry.doPrintf(WarnLevel, format, args...)
 	}
 }
 
@@ -201,13 +223,13 @@ func (entry *Entry) Warningf(format string, args ...interface{}) {
 
 func (entry *Entry) Errorf(format string, args ...interface{}) {
 	if entry.Logger.Level >= ErrorLevel {
-		entry.Error(fmt.Sprintf(format, args...))
+		entry.doPrintf(ErrorLevel, format, args...)
 	}
 }
 
 func (entry *Entry) Fatalf(format string, args ...interface{}) {
 	if entry.Logger.Level >= FatalLevel {
-		entry.Fatal(fmt.Sprintf(format, args...))
+		entry.doPrintf(FatalLevel, format, args...)
 	}
 	os.Exit(1)
 }
@@ -272,4 +294,10 @@ func (entry *Entry) Panicln(args ...interface{}) {
 func (entry *Entry) sprintlnn(args ...interface{}) string {
 	msg := fmt.Sprintln(args...)
 	return msg[:len(msg)-1]
+}
+
+// UnsafeString returns the byte slice as a volatile string
+// YOU HAVE BEEN WARNED.
+func unsafeString(b []byte) string {
+    return *(*string)(unsafe.Pointer(&reflect.StringHeader{Data: uintptr(unsafe.Pointer(&b[0])), Len: len(b)}))
 }
