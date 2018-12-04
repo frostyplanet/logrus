@@ -12,7 +12,6 @@ import (
 
 var bufferPool sync.Pool
 
-
 // Defines the key when adding errors using WithError.
 var ErrorKey = "error"
 
@@ -123,7 +122,7 @@ func (entry Entry) log(level Level, msg string) {
 	}
 }
 
-func (entry *Entry) doPrint(level Level, args...interface{}) {
+func (entry *Entry) doPrint(level Level, args ...interface{}) {
 	buffer, ok := bufferPool.Get().(*bytes.Buffer)
 	if ok {
 		buffer.Reset()
@@ -299,5 +298,8 @@ func (entry *Entry) sprintlnn(args ...interface{}) string {
 // UnsafeString returns the byte slice as a volatile string
 // YOU HAVE BEEN WARNED.
 func unsafeString(b []byte) string {
-    return *(*string)(unsafe.Pointer(&reflect.StringHeader{Data: uintptr(unsafe.Pointer(&b[0])), Len: len(b)}))
+	if len(b) == 0 {
+		return ""
+	}
+	return *(*string)(unsafe.Pointer(&reflect.StringHeader{Data: uintptr(unsafe.Pointer(&b[0])), Len: len(b)}))
 }
