@@ -113,6 +113,7 @@ type FieldLogger interface {
 	WithField(key string, value interface{}) *Entry
 	WithFields(fields Fields) *Entry
 	WithError(err error) *Entry
+	GetLevel() Level
 
 	Debugf(format string, args ...interface{})
 	Infof(format string, args ...interface{})

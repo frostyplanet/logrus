@@ -57,6 +57,10 @@ func (entry *Entry) String() (string, error) {
 	return str, nil
 }
 
+func (entry *Entry) GetLevel() Level {
+	return entry.Logger.Level
+}
+
 // Add an error as single field (using the key defined in ErrorKey) to the Entry.
 func (entry *Entry) WithError(err error) *Entry {
 	return entry.WithField(ErrorKey, err)

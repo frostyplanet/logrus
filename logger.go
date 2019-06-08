@@ -82,6 +82,10 @@ func (logger *Logger) newEntry() *Entry {
 	return NewEntry(logger)
 }
 
+func (logger *Logger) GetLevel() Level {
+	return logger.Level
+}
+
 func (logger *Logger) releaseEntry(entry *Entry) {
 	logger.entryPool.Put(entry)
 }

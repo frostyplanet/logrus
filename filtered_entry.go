@@ -10,6 +10,10 @@ type FilteredLogEntry struct {
 	Level Level
 }
 
+func (entry *FilteredLogEntry) GetLevel() Level {
+	return entry.Level
+}
+
 func (entry *FilteredLogEntry) Debug(args ...interface{}) {
 	if entry.Level >= DebugLevel {
 		entry.log(DebugLevel, fmt.Sprint(args...))
